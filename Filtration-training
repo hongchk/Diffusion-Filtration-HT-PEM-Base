@@ -125,16 +125,7 @@ proton_con = proton_con.reshape(-1, )
 
 columns = ['D','PA','T','VSAE3','VSAE2','EVSA8','MESI','BJ','para_H']
 excel_change_n = pd.DataFrame(excel_change_n, columns=columns)
-print(excel_change_n)
 excel_change_n.to_excel('data_distribute.xlsx')
-
-plt.rcParams.update({
-    'axes.labelsize': 25,   
-    'xtick.labelsize': 16,  
-    'ytick.labelsize': 16,   
-    'axes.titlesize': 30,   
-    'font.weight': 'bold'
-})
 
 trainX, testX, trainY, testY = train_test_split(excel_change_n, (proton_con.ravel()), test_size=0.25, random_state=12345)
 
@@ -142,23 +133,6 @@ LR = linear_model.LinearRegression()
 LR.fit(trainX, trainY)
 pre_y = LR.predict(testX)
 lr_s = LR.score(testX, testY)
-print(lr_s,[LR.coef_],LR.intercept_)
-plt.figure(figsize=(8.5, 6.5))
-plt.plot([0, 1], [0, 1], color="#6F6F6F",linewidth=3)
-plt.scatter(LR.predict(trainX), trainY, label='Train Set',color='#6D65A3')
-plt.scatter(LR.predict(testX), testY, label='Test Set',color='#F6631C')
-plt.xlabel('Prediction',labelpad=15,fontweight='bold')
-plt.ylabel('Experiment',labelpad=15,fontweight='bold')
-plt.subplots_adjust(left=0.15,  
-                    right=0.95,  
-                    bottom=0.15,  
-                    top=0.96)  
-
-plt.legend(fontsize=16,title_fontsize=14)
-plt.show()
-
-
-
 RF = RandomForestRegressor(random_state=888, n_estimators=2000, criterion='squared_error', min_samples_split=2, min_samples_leaf=1, min_weight_fraction_leaf=0.0, max_features=1.0,, verbose=0, ccp_alpha=0.0)
 CLF = DecisionTreeRegressor(criterion='squared_error', splitter='best', max_depth=None, min_samples_split=2, min_samples_leaf=1, min_weight_fraction_leaf=0.0, random_state=888)
 LTRF = RandomForestRegressor(random_state=888, n_estimators=100, criterion='squared_error', min_samples_split=2, min_samples_leaf=1, min_weight_fraction_leaf=0.0, max_features=1.0,, verbose=0, ccp_alpha=0.0)
@@ -166,36 +140,6 @@ RF = RF.fit(trainX, trainY)
 CLF = CLF.fit(trainX, trainY)
 clf_s = CLF.score(testX, testY)
 rf_s = RF.score(testX, testY)
-plt.figure(figsize=(8.5, 6.5))
-plt.plot([0, 1], [0, 1], color="#6F6F6F",linewidth=3)
-plt.scatter(CLF.predict(trainX), trainY, label='Train Set',color='#6D65A3')
-plt.scatter(CLF.predict(testX), testY, label='Test Set',color='#F6631C')
-plt.xlabel('Prediction',labelpad=15,fontweight='bold')
-plt.ylabel('Experiment',labelpad=15,fontweight='bold')
-plt.subplots_adjust(left=0.15, 
-                    right=0.95,
-                    bottom=0.15,
-                    top=0.96) 
-plt.legend(fontsize=16,title_fontsize=14)
-plt.show()
-
-print(rf_s)
-print(np.sqrt(mse(RF.predict(testX), testY)))
-
-plt.figure(figsize=(8.5, 6.5))
-plt.plot([0, 1], [0, 1], color="#6F6F6F",linewidth=3)
-plt.scatter(RF.predict(trainX), trainY, label='Train Set',color='#6D65A3')
-plt.scatter(RF.predict(testX), testY, label='Test Set',color='#F6631C')
-plt.xlabel('Prediction',labelpad=15,fontweight='bold')
-plt.ylabel('Experiment',labelpad=15,fontweight='bold')
-plt.subplots_adjust(left=0.15, 
-                    right=0.95,  
-                    bottom=0.15, 
-                    top=0.96) 
-
-plt.legend(fontsize=16,title_fontsize=14)
-plt.show()
-
 joblib.dump(
     {
         "feature_scaler": normalizationX,
@@ -204,49 +148,12 @@ joblib.dump(
     },
     "RF_with_normalization.joblib"
 )
-
-
-
-
 LTRF = LTRF.fit(trainX, trainY)
 ltrf_s = LTRF.score(testX, testY)
-print(ltrf_s)
-print(np.sqrt(mse(LTRF.predict(testX), testY)))
-plt.figure(figsize=(8.5, 6.5))
-plt.plot([0, 1], [0, 1], color="#6F6F6F",linewidth=3)
-plt.scatter(LTRF.predict(trainX), trainY, label='Train Set',color='#6D65A3')
-plt.scatter(LTRF.predict(testX), testY, label='Test Set',color='#F6631C')
-plt.xlabel('Prediction',labelpad=15,fontweight='bold')
-plt.ylabel('Experiment',labelpad=15,fontweight='bold')
-plt.subplots_adjust(left=0.15,  
-                    right=0.95, 
-                    bottom=0.15,  
-                    top=0.96)  
-
-plt.legend(fontsize=16,title_fontsize=14)
-plt.show()
-
-
 LR = linear_model.LinearRegression()
 LR.fit(trainX, trainY)
 pre_y = LR.predict(testX)
 lr_s = LR.score(testX, testY)
-print(lr_s,[LR.coef_],LR.intercept_)
-print(np.sqrt(mse(LR.predict(testX), testY)))
-plt.figure(figsize=(8.5, 6.5))
-plt.plot([0, 1], [0, 1], color="#6F6F6F",linewidth=3)
-plt.scatter(LR.predict(trainX), trainY, label='Train Set',color='#6D65A3')
-plt.scatter(LR.predict(testX), testY, label='Test Set',color='#F6631C')
-plt.xlabel('Prediction',labelpad=15,fontweight='bold')
-plt.ylabel('Experiment',labelpad=15,fontweight='bold')
-plt.subplots_adjust(left=0.15,  
-                    right=0.95, 
-                    bottom=0.15,  
-                    top=0.96)  
-
-plt.legend(fontsize=16,title_fontsize=14)
-plt.show()
-
 square = []
 for i in trainX.columns:
     square_num = []
@@ -279,18 +186,7 @@ MLR = linear_model.LinearRegression()
 MLR.fit(trainX, trainY)
 pre_y = MLR.predict(testX)
 mlr_s = MLR.score(testX, testY)
-print(mlr_s,[MLR.coef_],MLR.intercept_)
-print(np.sqrt(mse(MLR.predict(testX), testY)))
-plt.figure(figsize=(8.5, 6.5))
-plt.plot([0, 1], [0, 1], color="#6F6F6F",linewidth=3)
-plt.scatter(MLR.predict(trainX), trainY, label='Train Set',color='#6D65A3')
-plt.scatter(MLR.predict(testX), testY, label='Test Set',color='#F6631C')
-plt.xlabel('Prediction',labelpad=15,fontweight='bold')
-plt.ylabel('Experiment',labelpad=15,fontweight='bold')
-plt.subplots_adjust(left=0.15, 
-                    right=0.95,  
-                    bottom=0.15,  
-                    top=0.96)  
+
 
 plt.legend(fontsize=16,title_fontsize=14)
 plt.show()
