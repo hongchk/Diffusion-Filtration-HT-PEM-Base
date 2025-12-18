@@ -1,0 +1,297 @@
+import pandas as pd
+import numpy as np
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.model_selection import train_test_split
+from sklearn import linear_model
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import OneHotEncoder
+from rdkit import Chem
+from rdkit.ML.Descriptors import MoleculeDescriptors
+from rdkit.Chem import Descriptors
+from sklearn.metrics import mean_squared_error as mse
+import time
+
+
+def RDkit_descriptors(smiles):
+    mols = [Chem.MolFromSmiles(i) for i in smiles]
+    calc = MoleculeDescriptors.MolecularDescriptorCalculator([x[0] for x in Descriptors._descList])
+    desc_names = calc.GetDescriptorNames()
+    n=0
+    Mol_descriptors = []
+    for mol in mols:
+        n+=1
+        try:
+            mol = Chem.AddHs(mol)
+        except:
+            print(n)
+            exit()
+        descriptors = calc.CalcDescriptors(mol)
+        Mol_descriptors.append(descriptors)
+    return Mol_descriptors, desc_names
+
+
+
+excel = pd.read_excel(io=r'your path')
+need_1 = excel.to_dict('list')
+proton_con = need_1['proton conductivity']
+excel_change_nonstring = excel.drop(['base', 'membrane method', 'PA method', 'B_SMILES'], axis=1)
+excel_change_string = excel.drop(['base', 'thickness', 'PA uptake', 'temperature', 'proton conductivity', 'B_SMILES'], axis=1)
+enc = OneHotEncoder()
+enc.fit(excel_change_string)
+excel_change_string = enc.transform(excel_change_string).toarray()
+
+excel_B_SMILES = pd.read_excel(io=r'your path')
+list_B_SMILES = excel_B_SMILES.to_dict('list')['B_SMILES']
+Mol_descriptors, desc_names = RDkit_descriptors(list_B_SMILES)
+B_SMILES_DF = pd.DataFrame(Mol_descriptors, columns=desc_names)
+print(B_SMILES_DF)
+
+NANclo = []
+
+for i in B_SMILES_DF.columns:
+    NANnum = []
+    excel_change_i_copy = B_SMILES_DF[i].copy()
+    all_in_all = 0
+    count = 0
+    for j in range(len(B_SMILES_DF[i])):
+        try:
+            float(B_SMILES_DF[i][j])
+            all_in_all += B_SMILES_DF[i][j]
+            count += 1
+        except:
+            NANnum.append(j)
+    for num in NANnum:
+        excel_change_i_copy[num] = all_in_all / count
+    B_SMILES_DF[i] = excel_change_i_copy.copy()
+
+for i in B_SMILES_DF.columns:
+    excel_change_i_copy = B_SMILES_DF[i].copy()
+    add_all = 0
+    for j in range(len(B_SMILES_DF[i])):
+        float(B_SMILES_DF[i][j])
+        add_all += B_SMILES_DF[i][j]
+    if add_all == 0:
+        NANclo.append(i)
+    if pd.isna(add_all):
+        NANclo.append(i)
+
+print(NANclo)
+
+for i in NANclo:
+    B_SMILES_DF = B_SMILES_DF.drop([i], axis=1)
+
+excel_change_corr = pd.concat([B_SMILES_DF, excel_change_nonstring], axis=1)
+normalization = MinMaxScaler()
+excel_change_n = normalization.fit_transform(excel_change_corr)
+excel_change_n = pd.DataFrame(excel_change_n, columns=excel_change_corr.columns)
+print(excel_change_nonstring.columns)
+print(excel_change_corr.corr('pearson')['proton conductivity']['temperature'])
+
+
+select_cols = []
+select_B_col = ['VSA_EState3', 'VSA_EState2', 'EState_VSA8', 'MinEStateIndex', 'BalabanJ', 'fr_para_hydroxylation'] 
+B_SMILES_select = B_SMILES_DF[select_B_col]
+excel_change_corr = pd.concat([B_SMILES_select, excel_change_nonstring], axis=1)
+
+
+excel_change = pd.concat([excel_change_nonstring, B_SMILES_select], axis=1)
+excel_change.columns = excel_change.columns.astype(str)
+
+excel_change.corr('pearson').to_excel('pearson.xlsx')
+excel_change.corr('spearman').to_excel('spearman.xlsx')
+excel_change.corr('kendall').to_excel('kendall.xlsx')
+
+dataextreme = {}
+for i in excel_change.columns:
+    dataextreme[i] = [np.max(excel_change[i]),np.min(excel_change[i])]
+
+
+excel_change = excel_change.drop(['proton conductivity'], axis=1)
+normalizationX = MinMaxScaler()
+excel_change_n = normalizationX.fit_transform(excel_change)
+
+proton_con_log = []
+for i in proton_con:
+    proton_con_log.append([i])
+
+normalizationY = MinMaxScaler()
+proton_con = np.array(proton_con).reshape(-1,1)
+proton_con = normalizationY.fit_transform(proton_con)
+proton_con = np.array(proton_con)
+proton_con = proton_con.reshape(-1, )
+
+
+columns = ['D','PA','T','VSAE3','VSAE2','EVSA8','MESI','BJ','para_H']
+excel_change_n = pd.DataFrame(excel_change_n, columns=columns)
+print(excel_change_n)
+excel_change_n.to_excel('data_distribute.xlsx')
+
+plt.rcParams.update({
+    'axes.labelsize': 25,   
+    'xtick.labelsize': 16,  
+    'ytick.labelsize': 16,   
+    'axes.titlesize': 30,   
+    'font.weight': 'bold'
+})
+
+trainX, testX, trainY, testY = train_test_split(excel_change_n, (proton_con.ravel()), test_size=0.25, random_state=12345)
+
+LR = linear_model.LinearRegression()
+LR.fit(trainX, trainY)
+pre_y = LR.predict(testX)
+lr_s = LR.score(testX, testY)
+print(lr_s,[LR.coef_],LR.intercept_)
+plt.figure(figsize=(8.5, 6.5))
+plt.plot([0, 1], [0, 1], color="#6F6F6F",linewidth=3)
+plt.scatter(LR.predict(trainX), trainY, label='Train Set',color='#6D65A3')
+plt.scatter(LR.predict(testX), testY, label='Test Set',color='#F6631C')
+plt.xlabel('Prediction',labelpad=15,fontweight='bold')
+plt.ylabel('Experiment',labelpad=15,fontweight='bold')
+plt.subplots_adjust(left=0.15,  
+                    right=0.95,  
+                    bottom=0.15,  
+                    top=0.96)  
+
+plt.legend(fontsize=16,title_fontsize=14)
+plt.show()
+
+
+
+RF = RandomForestRegressor(random_state=888, n_estimators=2000, criterion='squared_error', min_samples_split=2, min_samples_leaf=1, min_weight_fraction_leaf=0.0, max_features=1.0,, verbose=0, ccp_alpha=0.0)
+CLF = DecisionTreeRegressor(criterion='squared_error', splitter='best', max_depth=None, min_samples_split=2, min_samples_leaf=1, min_weight_fraction_leaf=0.0, random_state=888)
+LTRF = RandomForestRegressor(random_state=888, n_estimators=100, criterion='squared_error', min_samples_split=2, min_samples_leaf=1, min_weight_fraction_leaf=0.0, max_features=1.0,, verbose=0, ccp_alpha=0.0)
+RF = RF.fit(trainX, trainY)
+CLF = CLF.fit(trainX, trainY)
+clf_s = CLF.score(testX, testY)
+rf_s = RF.score(testX, testY)
+plt.figure(figsize=(8.5, 6.5))
+plt.plot([0, 1], [0, 1], color="#6F6F6F",linewidth=3)
+plt.scatter(CLF.predict(trainX), trainY, label='Train Set',color='#6D65A3')
+plt.scatter(CLF.predict(testX), testY, label='Test Set',color='#F6631C')
+plt.xlabel('Prediction',labelpad=15,fontweight='bold')
+plt.ylabel('Experiment',labelpad=15,fontweight='bold')
+plt.subplots_adjust(left=0.15, 
+                    right=0.95,
+                    bottom=0.15,
+                    top=0.96) 
+plt.legend(fontsize=16,title_fontsize=14)
+plt.show()
+
+print(rf_s)
+print(np.sqrt(mse(RF.predict(testX), testY)))
+
+plt.figure(figsize=(8.5, 6.5))
+plt.plot([0, 1], [0, 1], color="#6F6F6F",linewidth=3)
+plt.scatter(RF.predict(trainX), trainY, label='Train Set',color='#6D65A3')
+plt.scatter(RF.predict(testX), testY, label='Test Set',color='#F6631C')
+plt.xlabel('Prediction',labelpad=15,fontweight='bold')
+plt.ylabel('Experiment',labelpad=15,fontweight='bold')
+plt.subplots_adjust(left=0.15, 
+                    right=0.95,  
+                    bottom=0.15, 
+                    top=0.96) 
+
+plt.legend(fontsize=16,title_fontsize=14)
+plt.show()
+
+joblib.dump(
+    {
+        "feature_scaler": normalizationX,
+        "target_scaler": normalizationY,
+        "model": RF
+    },
+    "RF_with_normalization.joblib"
+)
+
+
+
+
+LTRF = LTRF.fit(trainX, trainY)
+ltrf_s = LTRF.score(testX, testY)
+print(ltrf_s)
+print(np.sqrt(mse(LTRF.predict(testX), testY)))
+plt.figure(figsize=(8.5, 6.5))
+plt.plot([0, 1], [0, 1], color="#6F6F6F",linewidth=3)
+plt.scatter(LTRF.predict(trainX), trainY, label='Train Set',color='#6D65A3')
+plt.scatter(LTRF.predict(testX), testY, label='Test Set',color='#F6631C')
+plt.xlabel('Prediction',labelpad=15,fontweight='bold')
+plt.ylabel('Experiment',labelpad=15,fontweight='bold')
+plt.subplots_adjust(left=0.15,  
+                    right=0.95, 
+                    bottom=0.15,  
+                    top=0.96)  
+
+plt.legend(fontsize=16,title_fontsize=14)
+plt.show()
+
+
+LR = linear_model.LinearRegression()
+LR.fit(trainX, trainY)
+pre_y = LR.predict(testX)
+lr_s = LR.score(testX, testY)
+print(lr_s,[LR.coef_],LR.intercept_)
+print(np.sqrt(mse(LR.predict(testX), testY)))
+plt.figure(figsize=(8.5, 6.5))
+plt.plot([0, 1], [0, 1], color="#6F6F6F",linewidth=3)
+plt.scatter(LR.predict(trainX), trainY, label='Train Set',color='#6D65A3')
+plt.scatter(LR.predict(testX), testY, label='Test Set',color='#F6631C')
+plt.xlabel('Prediction',labelpad=15,fontweight='bold')
+plt.ylabel('Experiment',labelpad=15,fontweight='bold')
+plt.subplots_adjust(left=0.15,  
+                    right=0.95, 
+                    bottom=0.15,  
+                    top=0.96)  
+
+plt.legend(fontsize=16,title_fontsize=14)
+plt.show()
+
+square = []
+for i in trainX.columns:
+    square_num = []
+    for j in trainX[i]:
+        j = float(j)
+        square_num.append(j ** 2)
+    square.append(square_num)
+cube = []
+print(trainX)
+square=pd.DataFrame(square).T
+print(square)
+print(trainX)
+trainX=trainX.reset_index(drop=True)
+trainX = pd.concat([trainX, square], axis=1)
+print(trainX)
+square = []
+for i in testX:
+    square_num = []
+    for j in testX[i]:
+        j = float(j)
+        square_num.append(j ** 2)
+    square.append(square_num)
+cube = []
+square=pd.DataFrame(square).T
+testX=testX.reset_index(drop=True)
+testX = pd.concat([testX, square], axis=1)
+trainX.columns = trainX.columns.astype(str)
+testX.columns = testX.columns.astype(str)
+MLR = linear_model.LinearRegression()
+MLR.fit(trainX, trainY)
+pre_y = MLR.predict(testX)
+mlr_s = MLR.score(testX, testY)
+print(mlr_s,[MLR.coef_],MLR.intercept_)
+print(np.sqrt(mse(MLR.predict(testX), testY)))
+plt.figure(figsize=(8.5, 6.5))
+plt.plot([0, 1], [0, 1], color="#6F6F6F",linewidth=3)
+plt.scatter(MLR.predict(trainX), trainY, label='Train Set',color='#6D65A3')
+plt.scatter(MLR.predict(testX), testY, label='Test Set',color='#F6631C')
+plt.xlabel('Prediction',labelpad=15,fontweight='bold')
+plt.ylabel('Experiment',labelpad=15,fontweight='bold')
+plt.subplots_adjust(left=0.15, 
+                    right=0.95,  
+                    bottom=0.15,  
+                    top=0.96)  
+
+plt.legend(fontsize=16,title_fontsize=14)
+plt.show()
+
