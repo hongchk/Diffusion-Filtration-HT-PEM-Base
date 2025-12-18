@@ -1,0 +1,156 @@
+import pandas as pd
+import numpy as np
+import torch
+from torch.utils.data import DataLoader, Dataset
+from torch.nn.utils.rnn import pad_sequence
+from torch.nn import functional as F
+from collections import Counter
+from torch import nn, optim
+from torch.optim.lr_scheduler import StepLR
+
+
+class StringDataset(Dataset):
+    def __init__(self, data):
+        self.data = data
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        return self.data[idx]
+
+def q_x(x_0, t, betas):
+    alphas = 1 - betas
+    alphas_prod = torch.cumprod(alphas, 0)
+    alphas_prod_p = torch.cat([torch.tensor([1]).float(), alphas_prod[:-1]], 0) 
+    alphas_bar_sqrt = torch.sqrt(alphas_prod)
+    one_minus_alphas_bar_log = torch.log(1 - alphas_prod)
+    one_minus_alphas_bar_sqrt = torch.sqrt(1 - alphas_prod)
+    noise = torch.randn_like(x_0)
+    alphas_t = alphas_bar_sqrt[t]
+    alphas_1_m_t = one_minus_alphas_bar_sqrt[t]
+    return (alphas_t * x_0 + alphas_1_m_t * noise)
+
+class MLPDiffusion(nn.Module):
+
+    def __init__(self, n_steps, max_len, num_units=128):
+        super(MLPDiffusion, self).__init__()
+        self.linears = nn.ModuleList(
+            [
+                nn.Linear(max_len, num_units), 
+                nn.ReLU(), 
+                nn.Linear(num_units, num_units),
+                nn.ReLU(), 
+                nn.Linear(num_units, num_units),
+                nn.ReLU(), 
+                nn.Linear(num_units, max_len),
+            ]
+        )
+        self.step_embeddings = nn.ModuleList(
+            [
+                nn.Embedding(n_steps, num_units), 
+                nn.Embedding(n_steps, num_units),
+                nn.Embedding(n_steps, num_units),
+            ]
+        )
+
+    def forward(self, x_0, t):
+        x = x_0
+        for idx, embedding_layer in enumerate(self.step_embeddings):
+            t_embedding = embedding_layer(t)
+            x = self.linears[2*idx](x)
+            x += t_embedding
+            x = self.linears[2*idx+1](x)
+            
+        x = self.linears[-1](x)
+
+        return x 
+
+def diffusion_loss_fn(model, x_0, alphas_bar_sqrt, one_minus_alphas_bar_sqrt, n_steps):
+    batch_size = x_0.shape[0]
+    t = torch.randint(0, n_steps, size=(batch_size,))
+    t = torch.cat([t, n_steps-1-t], dim=0) #[batchsize]
+    t = t.unsqueeze(-1) #[batchsize, 1]
+    a = alphas_bar_sqrt[t]
+    am1 = one_minus_alphas_bar_sqrt[t]
+    e = torch.randn_like(x_0)
+    x = x_0*a + e*am1
+    output = model(x, t.squeeze(-1))
+    return (e - output).square().mean()
+
+def text_to_sequence(text):
+    return [vocab[char] for char in text if char != ', ']
+
+def p_sample_loop(model, shape, n_steps, betas, one_minus_alphas_bar_sqrt):
+    cur_x = torch.randn(shape)
+    x_seq = [cur_x]
+    for i in reversed(range(n_steps)):
+        cur_x = p_sample(model, cur_x, i, betas, one_minus_alphas_bar_sqrt)
+        x_seq.append(cur_x)
+    return x_seq
+
+def p_sample(model, x, t, betas, one_minus_alphas_bar_sqrt):
+    t = torch.tensor([t])
+    coeff = betas[t] / one_minus_alphas_bar_sqrt[t]
+    eps_theta = model(x, t)
+    mean = (1 / (1-betas[t]).sqrt()) * (x - (coeff * eps_theta))
+    z = torch.randn_like(x)
+    sigma_t = betas[t].sqrt()
+    sample = mean + sigma_t *z 
+    return (sample)
+
+data = pd.read_excel('your data')
+texts = data['SMILES'].astype(str).tolist()
+
+all_chars_list = []
+for text in texts:
+    chars = text.split(',')
+    all_chars_list.append(chars)
+
+all_chars = [char for list in all_chars_list for char in list]
+char_counter = Counter(all_chars)
+vocab = {char: idx + 1 for idx, (char, _) in enumerate(char_counter.items())}  
+vocab_size = len(vocab) + 1  
+inv_vocab = {idx: char for char, idx in vocab.items()}
+
+
+sequences = []
+for text in texts:
+    chars = text.split(', ')
+    sequences.append(text_to_sequence(chars))
+
+max_len = max(len(seq) for seq in sequences)
+padded_sequences = [seq + [0] * (max_len - len(seq)) for seq in sequences]
+tensor_sequences = torch.tensor(padded_sequences, dtype=torch.float)
+dataset = StringDataset(tensor_sequences)
+dataloader = DataLoader(dataset, batch_size=1, shuffle=True)
+dataset = tensor_sequences.to(dtype=torch.float)
+num_steps = 2000
+betas = torch.linspace(-6, 6, num_steps)
+betas = torch.sigmoid(betas) * (0.5e-2 - 1e-5) + 1e-5
+alphas = 1 - betas
+alphas_prod = torch.cumprod(alphas, 0)
+alphas_prod_p = torch.cat([torch.tensor([1]).float(), alphas_prod[:-1]], 0) #p表示为previous
+alphas_bar_sqrt = torch.sqrt(alphas_prod)
+one_minus_alphas_bar_log = torch.log(1 - alphas_prod)
+one_minus_alphas_bar_sqrt = torch.sqrt(1 - alphas_prod)
+assert alphas.shape==alphas_prod.shape==alphas_prod_p.shape==alphas_bar_sqrt.shape==one_minus_alphas_bar_log.shape==one_minus_alphas_bar_sqrt.shape
+
+num_epoch = 800
+model = MLPDiffusion(num_steps, max_len=max_len)
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+
+for t in range(num_epoch):
+    for idx, batch_x in enumerate(dataloader):
+        #print(batch_x)
+        loss = diffusion_loss_fn(model, batch_x, alphas_bar_sqrt, one_minus_alphas_bar_sqrt, num_steps)
+        optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.)
+        optimizer.step()
+
+    if (t % 10 == 0):
+        print(loss)
+        x_seq = p_sample_loop(model, dataset.shape, num_steps, betas, one_minus_alphas_bar_sqrt)
+
+torch.save(model, 'your model')
